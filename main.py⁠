@@ -1,0 +1,58 @@
+import polars as pl
+import time
+from pathlib import Path
+
+def process_massive_data(file_path: str) -> pl.DataFrame:
+    """
+    أداة معالجة البيانات فائقة السرعة باستخدام Polars
+    مصممة للتعامل مع ملايين السطور وسحب، تنظيف، وتجهيز البيانات لـ xAI بأقل استهلاك للذاكرة.
+    """
+    start_time = time.time()
+    
+    print(f"[*] جاري قراءة الملف وضغط الذاكرة: {file_path}")
+    
+    # 1. قراءة البيانات بكسل (Lazy Evaluation) لتوفير الرامات تماماً مع الملفات الضغمة
+    df_lazy = pl.scan_csv(file_path)
+    
+    # 2. عمليات التنظيف السريعة والتوازي الفوري لـ Polars
+    df_processed = (
+        df_lazy
+        .filter(pl.col("text").is_not_null()) # استبعاد النصوص الفارغة
+        .with_columns([
+            # تنظيف النص الأساسي وإزالة المسافات الزائدة
+            pl.col("text").str.strip_chars().alias("cleaned_text"),
+            # تقييم طول النص بكفاءة عالية
+            pl.col("text").str.n_chars().alias("text_length")
+        ])
+        # تصفية النصوص القصيرة جداً أو السبام
+        .filter(pl.col("text_length") > 10)
+        .select(["cleaned_text", "text_length", "timestamp"])
+    )
+    
+    # تنفيذ العمليات فعلياً بتوازي كامل على الأنوية (Collect)
+    result_df = df_processed.collect()
+    
+    elapsed_time = time.time() - start_time
+    print(f"[+] تمت المعالجة بنجاح في {elapsed_time:.4f} ثانية!")
+    print(f"[+] إجمالي السطور الصالحة للتدريب/التحليل: {result_df.height}")
+    
+    return result_df
+
+if __name__ == "__main__":
+    sample_file = "massive_tweets_dataset.csv"
+    
+    # إنشاء ملف تجريبي ضخم (مليون سطر) لفحص الأداء الحقيقي
+    if not Path(sample_file).exists():
+        print("[*] جاري إنشاء ملف تجريبي لفحص الأداء الحقيقي (1 مليون تغريدة)...")
+        dummy_data = pl.DataFrame({
+            "id": list(range(1, 1000001)),
+            "text": ["  Elon Musk xAI and Grok are accelerating AI development!  " if i % 2 == 0 else "short" for i in range(1, 1000001)],
+            "timestamp": ["2026-10-28 08:00:00"] * 1000000
+        })
+        dummy_data.write_csv(sample_file)
+    
+    # تشغيل الأداة وفحص سرعة المعالجة اللحظية
+    processed_data = process_massive_data(sample_file)
+    print("\n[+] عينة من البيانات الجاهزة للتدريب:")
+    print(processed_data.head(5))
+
